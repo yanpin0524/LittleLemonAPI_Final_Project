@@ -1,0 +1,38 @@
+# macOS system files
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Django
+*.log
+db.sqlite3
+media/
+
+# VSCode
+.vscode/
+.idea/
+
+# Python virtual environment
+venv/
+env/
+
+# Compiled Python files
+*.pyc
+
+# Compiled C extension
+*.so
+
+# Dependency directories
+node_modules/
+__pycache__/
+
+# macOS Finder metadata
+._*
+
+# Windows
+Thumbs.db
+Desktop.ini
