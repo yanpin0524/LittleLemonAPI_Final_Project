@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
-from .models import Category, MenuItem
+from .models import Category, MenuItem, Cart
 from django.contrib.auth.models import User, Group
 
 
@@ -33,8 +33,38 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "username", "email"]
 
 
-class GroupSerializer(serializers.ModelSerializer):
+# class GroupSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = Group
+#         fields = ["user_set"]
+#         depth = 1
+
+
+# class TokenSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = Token
+#         fields = ["key", "created", "user_id"]
+
+
+class CartSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(write_only=True)
+    menuitem_id = serializers.IntegerField(write_only=True)
+
     class Meta:
-        model = Group
-        fields = ["user_set"]
+        model = Cart
+        fields = [
+            "id",
+            "user",
+            "menuitem",
+            "quantity",
+            "unit_price",
+            "price",
+            "user_id",
+            "menuitem_id",
+        ]
         depth = 1
+        extra_kwargs = {
+            "quantity": {"min_value": 1},
+            "unit_price": {"min_value": 1},
+            "price": {"min_value": 1},
+        }
