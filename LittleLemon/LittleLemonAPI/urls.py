@@ -9,4 +9,6 @@ urlpatterns = [
     path("groups/delivery-crew/users", views.delivery_users),
     path("groups/delivery-crew/users/<int:id>", views.remove_delivery_user),
     path("cart/menu-items", views.user_cart),
+    path("orders", views.orders),
+    path("orders/<int:id>", views.single_order),
 ]

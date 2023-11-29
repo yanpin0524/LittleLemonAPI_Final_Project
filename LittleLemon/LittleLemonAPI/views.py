@@ -1,15 +1,19 @@
 from django.contrib.auth.models import User, Group
-from .models import MenuItem, Cart
+from .models import MenuItem, Cart, Order, OrderItem
 from .serializers import (
     MenuItemSerializer,
     UserSerializer,
     CartSerializer,
+    OrderSerializer,
+    OrderItemSerializer,
 )
 
 from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
+
+# from datetime import datetime
 
 
 # Menu-Item
@@ -154,7 +158,7 @@ def remove_delivery_user(request, id):
 @api_view(["GET", "POST", "DELETE"])
 @permission_classes([IsAuthenticated])
 def user_cart(request):
-    # Check the user isn't a "Manager" or "Delivery-crew"
+    # if the user isn't a Manager or Delivery-crew, it will be a Customer
     if not request.user.groups.filter(name__in=["Manager", "Delivery-crew"]).exists():
         if request.method == "GET":
             current_user_id = request.user.id
@@ -179,3 +183,156 @@ def user_cart(request):
             return Response({"message": "Deleted"}, 200)
     else:
         return Response({"message": "Unauthorized, You are not Customer."}, 403)
+
+
+# Order-Management
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def orders(request):
+    if request.method == "GET":
+        if request.user.groups.filter(name="Manager").exists():
+            orders = Order.objects.all()
+            serialized_orders = OrderSerializer(orders, many=True)
+
+            return Response(serialized_orders.data, 200)
+
+        elif request.user.groups.filter(name="Delivery-crew").exists():
+            current_delivery_id = request.user.id
+            orders = Order.objects.filter(delivery_crew__id=current_delivery_id)
+            serialized_orders = OrderSerializer(orders, many=True)
+
+            return Response(serialized_orders.data, 200)
+
+        else:  # if the user isn't a Manager or Delivery-crew, it will be a Customer
+            current_user_id = request.user.id
+            orders = Order.objects.filter(user__id=current_user_id)
+            serialized_orders = OrderSerializer(orders, many=True)
+
+            return Response(serialized_orders.data, 200)
+    if request.method == "POST":
+        if not request.user.groups.filter(  # if the user isn't a Manager or Delivery-crew, it will be a Customer
+            name__in=["Manager", "Delivery-crew"]
+        ).exists():
+            order_data = request.data
+            order_data["user_id"] = request.user.id
+            order_data["total"] = 0
+            # order_data["date"] = datetime.now().date()
+
+            serialized_order = OrderSerializer(data=order_data)
+            serialized_order.is_valid(raise_exception=True)
+            serialized_order.save()
+            order_id = serialized_order.data.get("id")
+
+            current_user_id = request.user.id
+            cart = Cart.objects.filter(user__id=current_user_id)
+
+            order_total = 0
+            for cart_item in cart:
+                order_item = {
+                    "order_id": order_id,
+                    "menuitem_id": cart_item.menuitem.id,
+                    "quantity": cart_item.quantity,
+                    "unit_price": cart_item.unit_price,
+                    "price": cart_item.price,
+                }
+
+                order_total += order_item["price"]
+
+                serialized_order_item = OrderItemSerializer(data=order_item)
+                serialized_order_item.is_valid(raise_exception=True)
+                serialized_order_item.save()
+
+            cart.delete()
+
+            serialized_order.instance.total = order_total
+            serialized_order.instance.save()
+            serialized_order = OrderSerializer(Order.objects.get(pk=order_id))
+
+            return Response(serialized_order.data, 201)
+
+        else:
+            return Response({"message": "Unauthorized, You are not Customer."}, 403)
+
+
+@api_view(["GET", "PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def single_order(request, id):
+    if request.method == "GET":
+        if not request.user.groups.filter(  # if the user isn't a Manager or Delivery-crew, it will be a Customer
+            name__in=["Manager", "Delivery-crew"]
+        ).exists():
+            current_user_id = request.user.id
+            order_items = OrderItem.objects.filter(
+                order__id=id, order__user__id=current_user_id
+            )
+
+            if not order_items:
+                return Response({"message": "Not found"}, 404)
+
+            serialized_order_items = OrderItemSerializer(order_items, many=True)
+
+            return Response(serialized_order_items.data, 200)
+
+        else:
+            return Response({"message": "Unauthorized, You are not Customer."}, 403)
+
+    if request.method == "PATCH":
+        if request.user.groups.filter(name="Manager").exists():
+            order = get_object_or_404(Order, pk=id)
+            data = request.data
+
+            delivery_group = Group.objects.get(name="Delivery-crew")
+            delivery_user_set = delivery_group.user_set.all()
+
+            serialized_delivery_users = UserSerializer(delivery_user_set, many=True)
+
+            is_delivery = any(
+                user["id"] == data["delivery_crew_id"]
+                for user in serialized_delivery_users.data
+            )
+
+            if is_delivery:
+                order.delivery_crew_id = data.get(
+                    "delivery_crew_id", order.delivery_crew_id
+                )
+            else:
+                return Response({"message": "delivery_crew_id incorrect"}, 400)
+
+            order.status = data.get("status", order.status)
+            order.save()
+            serialized_order = OrderSerializer(order)
+
+            return Response(serialized_order.data, 200)
+
+        if request.user.groups.filter(name="Delivery-crew").exists():
+            order = get_object_or_404(Order, pk=id)
+            data = request.data
+
+            order.status = data.get("status", order.status)
+            order.save()
+            serialized_order = OrderSerializer(order)
+
+            return Response(serialized_order.data, 200)
+
+        else:  # if the user isn't a Manager or Delivery-crew, it will be a Customer
+            current_user_id = request.user.id
+            order = get_object_or_404(Order, pk=id, user__id=current_user_id)
+            data = request.data
+
+            order.total = data.get("total", order.total)
+            order.date = data.get("date", order.date)
+            order.save()
+            serialized_order = OrderSerializer(order)
+
+            return Response(serialized_order.data, 200)
+
+    if request.method == "DELETE":
+        if request.user.groups.filter(name="Manager").exists():
+            order = get_object_or_404(Order, pk=id)
+            order.delete()
+            order_items = OrderItem.objects.filter(order__id=id)
+            order_items.delete()
+
+            return Response({"message": "Deleted"}, 200)
+        else:
+            return Response({"message": "Unauthorized"}, 403)
